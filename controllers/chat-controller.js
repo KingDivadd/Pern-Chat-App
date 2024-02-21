@@ -92,13 +92,66 @@ const addParticipants = asyncHandler(async(req, res) => {
     if (!userExist.rows.length) {
         return res.status(500).json({ err: 'User not found' })
     }
-    const existingParticipant = chatExist.rows[0].participants
-    const newParticipant = existingParticipant.push(newUser)
+    // we should only add if it doesn't exist in the chart before
+    if (chatExist.rows[0].participants.includes(newUser)) {
+        return res.status(500).json({ err: `User already added to the group.` })
+    }
+    const updatedChat = await pool.query(
+        'UPDATE chat SET participants = array_append(participants, $1) WHERE chat_id = $2 RETURNING *', [newUser, chat_id]
+    );
 
-    const updatedChat = await pool.query(`update chat set participants = $1 where chat_id = $2 returning *`, [newParticipant, chat_id])
-
-    return res.status(200).json({ msg: `${userExist.rows[0].last_name} ${userExist.rows[0].first_name} added successfully`, updatedChat: updatedChat })
+    return res.status(200).json({ msg: `${userExist.rows[0].last_name} ${userExist.rows[0].first_name} added successfully`, updatedChat: updatedChat.rows[0] })
 
 })
 
-module.exports = { allChats, createChat, editChat, addParticipants }
+const removeParticipants = asyncHandler(async(req, res) => {
+    const { chat_id, user_id } = req.body
+    if (!chat_id) {
+        return res.status(500).json({ err: `Please provide chat id` })
+    }
+    const chatExist = await pool.query('select * from chat where chat_id = $1', [chat_id])
+    if (!chatExist.rows.length) {
+        return res.status(404).json({ err: `Chat not found, might have been deleted.` })
+    }
+    if (!chatExist.rows[0].is_group_chat) {
+        return res.status(500).json({ err: 'Participants can only be added to group chats.' })
+    }
+
+    if (chatExist.rows[0].group_admin !== req.info.id) {
+        return res.status(401).json({ err: `Only group admin can add users.` })
+    }
+    const userExist = await pool.query('select * from chat_user where chat_user_id = $1', [user_id])
+    if (!userExist.rows.length) {
+        console.log(userExist.rows.length)
+        return res.status(500).json({ err: 'User not found' })
+    }
+    const updatedChat = await pool.query('update chat set participants = array_remove(participants, $1) where chat_id = $2 returning * ', [user_id, chat_id])
+
+    return res.status(200).json({ msg: `${userExist.rows[0].last_name} ${userExist.rows[0].first_name} removed successfully`, updatedChat: updatedChat.rows[0] })
+})
+
+const deleteChat = asyncHandler(async(req, res) => {
+    const { chat_id } = req.body
+    if (!chat_id) {
+        return res.status(500).json({ err: `Please provide chat id` })
+    }
+    const chatExist = await pool.query('select * from chat where chat_id = $1', [chat_id])
+    if (!chatExist.rows.length) {
+        return res.status(404).json({ err: `Chat not found, might have been deleted.` })
+    }
+    if (chatExist.rows[0].is_group_chat) {
+        if (chatExist.rows[0].group_admin !== req.info.id) {
+            return res.status(401).json({ err: `Only group admin is allowed to delete this group chat.` })
+        }
+        const deleteChat = await pool.query('delete from chat where chat_id = $1', [chat_id])
+            // now i need to delete every msg linked to that chat
+        const deleteMsg = await pool.query('delete from msg where chat_id = $1', [chat_id])
+
+        return res.status(200).json({ msg: 'Chat deleted successfully.' })
+    }
+    if (!chatExist.rows[0].is_group_chat) {
+        // this should only be delted in the end of the used that initiated the delete
+    }
+})
+
+module.exports = { allChats, createChat, editChat, addParticipants, removeParticipants, deleteChat }
