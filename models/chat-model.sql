@@ -5,7 +5,7 @@ CREATE TABLE chat (
     group_admin uuid references chat_user(chat_user_id),
     chat_name VARCHAR(50),
     chat_pic VARCHAR(255)  DEFAULT 'http://',
-    latestMsg uuid references msg(msg_id),
+    msg_id uuid references msg (msg_id),
 
     createdAt TIMESTAMP DEFAULT NOW() NOT NULL,
     updatedAt TIMESTAMP DEFAULT NOW() NOT NULL
